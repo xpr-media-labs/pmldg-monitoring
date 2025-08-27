@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pmldg-monitoring
+  namespace: pmldg
+  labels:
+    app: pmldg-monitoring
+    version: v1.0.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pmldg-monitoring
+  template:
+    metadata:
+      labels:
+        app: pmldg-monitoring
+        version: v1.0.0
+    spec:
+      securityContext:
+        fsGroup: 472
+      containers:
+      - name: monitoring
+        image: berkbayrip/pmldg-monitoring:amd64
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: GF_SECURITY_ADMIN_USER
+          value: "admin"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pmldg-grafana-secret
+              key: admin-password
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          value: "false"
+        - name: GF_INSTALL_PLUGINS
+          value: "grafana-clock-panel,grafana-simple-json-datasource"
+        - name: GF_SERVER_ROOT_URL
+          value: "https://monitor.gateway.paribu.media"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 472
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: pmldg-grafana-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pmldg-monitoring
+  namespace: pmldg
+  labels:
+    app: pmldg-monitoring
+spec:
+  selector:
+    app: pmldg-monitoring
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pmldg-grafana-pvc
+  namespace: pmldg
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pmldg-grafana-secret
+  namespace: pmldg
+type: Opaque
+data:
+  admin-password: cG1sZGctZ3JhZmFuYS1hZG1pbi0yMDI1 # base64 encoded: pmldg-grafana-admin-2025
