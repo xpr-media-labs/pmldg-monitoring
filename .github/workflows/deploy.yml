@@ -24,7 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Log in to GHCR
+      - name: Log in to GHCR (PAT)
+        if: ${{ secrets.GHCR_WRITE_PAT != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_WRITE_PAT }}
+      - name: Log in to GHCR (GITHUB_TOKEN)
+        if: ${{ secrets.GHCR_WRITE_PAT == '' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
