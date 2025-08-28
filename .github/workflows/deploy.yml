@@ -1,0 +1,58 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  NAMESPACE: ${{ vars.K8S_NAMESPACE || 'pmldg' }}
+  DEPLOYMENT_NAME: pmldg-monitoring
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${KUBE_CONFIG}" | base64 -d > ~/.kube/config
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      - name: Update deployment image
+        run: |
+          imgs=${IMAGE_NAME}:${GITHUB_SHA}
+          for c in $(kubectl -n ${NAMESPACE} get deploy ${DEPLOYMENT_NAME} -o jsonpath='{.spec.template.spec.containers[*].name}'); do
+            kubectl -n ${NAMESPACE} set image deploy/${DEPLOYMENT_NAME} $c=${imgs} --record
+          done
+          kubectl -n ${NAMESPACE} rollout status deploy/${DEPLOYMENT_NAME} --timeout=300s
+
